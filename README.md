@@ -308,6 +308,22 @@ python3 tools/register_tools.py
 # Then re-import config/ibm_cloud_toolkit_openapi.json into Orchestrate
 ```
 
+### Fixing "invalid format" when importing `openapi.json`
+
+If watsonx Orchestrate reports the OpenAPI file has an invalid format, regenerate it using the latest generator logic:
+
+```bash
+source venv/bin/activate
+python3 tools/register_tools.py
+```
+
+The generated spec is now aligned for Orchestrate import by:
+- Using OpenAPI `3.0.3`
+- Omitting `requestBody` entirely for tools that do not accept input parameters
+- Including `required` fields only when parameters are truly required
+
+Then upload `config/ibm_cloud_toolkit_openapi.json` again.
+
 ---
 
 ## Creating Your First Agent
@@ -402,6 +418,7 @@ IBM Cloud Console → Manage → Access (IAM) → Users → your user → Access
 
 ### "Orchestrate import fails"
 - Validate the spec: `python3 -c "import json; json.load(open('config/ibm_cloud_toolkit_openapi.json'))"`
+- Regenerate spec with latest format fixes: `python3 tools/register_tools.py`
 - Confirm your Orchestrate instance URL is correct in `.env`
 - Check that your IBM Cloud account has the Orchestrate instance in **Active** state
 
