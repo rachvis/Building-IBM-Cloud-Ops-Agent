@@ -49,45 +49,46 @@ def build_openapi_spec(tools: list) -> dict:
                "default" not in param_info.get("description", "").lower():
                 required.append(param_name)
 
-        request_body = None
+        operation = {
+            "operationId": tool["name"],
+            "summary": tool["description"],
+            "description": (tool.get("function", lambda: None).__doc__ or tool["description"]).strip(),
+            "responses": {
+                "200": {
+                    "description": "Successful response",
+                    "content": {
+                        "application/json": {
+                            "schema": {"type": "object"}
+                        }
+                    },
+                },
+                "400": {"description": "Bad request — check parameters"},
+                "401": {"description": "Authentication failed — check IBM Cloud API key"},
+                "500": {"description": "Internal error"},
+            },
+        }
+
         if properties:
-            request_body = {
+            schema = {
+                "type": "object",
+                "properties": properties,
+            }
+            if required:
+                schema["required"] = required
+
+            operation["requestBody"] = {
                 "required": bool(required),
                 "content": {
                     "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": properties,
-                            "required": required if required else [],
-                        }
+                        "schema": schema,
                     }
                 },
             }
 
-        paths[path] = {
-            "post": {
-                "operationId": tool["name"],
-                "summary": tool["description"],
-                "description": tool.get("function", lambda: None).__doc__ or tool["description"],
-                "requestBody": request_body,
-                "responses": {
-                    "200": {
-                        "description": "Successful response",
-                        "content": {
-                            "application/json": {
-                                "schema": {"type": "object"}
-                            }
-                        },
-                    },
-                    "400": {"description": "Bad request — check parameters"},
-                    "401": {"description": "Authentication failed — check IBM Cloud API key"},
-                    "500": {"description": "Internal error"},
-                },
-            }
-        }
+        paths[path] = {"post": operation}
 
     spec = {
-        "openapi": "3.0.0",
+        "openapi": "3.0.3",
         "info": {
             "title": "IBM Cloud Toolkit for watsonx Orchestrate",
             "version": "1.0.0",
