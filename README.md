@@ -1,526 +1,345 @@
-## Complete Setup & Usage Guide
+# IBM Cloud Ops Agent for watsonx Orchestrate
+
+An autonomous IBM Cloud operations agent built with the watsonx Orchestrate ADK. Talk to your IBM Cloud account in plain English — the agent calls the right APIs and acts on your behalf.
+
+> "Check the health of my Code Engine apps and fix anything broken."  
+> "Show me all error logs from the last hour."  
+> "Scale my PostgreSQL database to 8 GB memory."
+
+**No credentials in chat. No API keys at runtime. Run `./deploy.sh` once — it works.**
 
 ---
 
-## 🗺️ Table of Contents
+## Demo Video
 
-1. [What is This?](#what-is-this)
-2. [Architecture Overview](#architecture-overview)
-3. [Prerequisites](#prerequisites)
-4. [Installation](#installation)
-5. [Verifying Your Setup](#verifying-your-setup)
-6. [Available Tools Reference](#available-tools-reference)
-7. [Importing into watsonx Orchestrate on IBM Cloud](#importing-into-watsonx-orchestrate-on-ibm-cloud)
-8. [Creating Your First Agent](#creating-your-first-agent)
-9. [Example Agent Conversations](#example-agent-conversations)
-10. [Troubleshooting](#troubleshooting)
-11. [Adding Custom Tools](#adding-custom-tools)
+[![Demo preview](docs/demo-preview.png)](https://github.com/rachvis/Building-IBM-Cloud-Ops-Agent)
 
 ---
 
-## What is This?
-
-The **IBM Cloud Toolkit for watsonx Orchestrate on IBM Cloud** is a collection of tools that let an AI agent in **watsonx Orchestrate** (deployed on IBM Cloud) talk directly to your IBM Cloud account.
+## How It Works
 
 ```
 You (plain English)
-    ↕
-watsonx Orchestrate Agent (on IBM Cloud)
-    ↕
-IBM Cloud Toolkit (this toolkit — loaded as skills)
-    ↕
-IBM Cloud APIs (Code Engine, Logs, Monitoring, Databases)
-    ↕
-Your IBM Cloud Infrastructure
+      │
+      ▼
+watsonx Orchestrate
+      │   looks up ibmcloud_creds connection
+      │   (registered by deploy.sh — never asked in chat)
+      ▼
+Python tool function runs inside Orchestrate runtime
+      │
+      │  IBM Cloud IAM → Bearer token
+      │  requests.get / post / patch
+      ▼
+IBM Cloud REST APIs
+  ├── Code Engine      api.<region>.codeengine.cloud.ibm.com
+  ├── Cloud Logs       <guid>.api.<region>.logs.cloud.ibm.com
+  ├── Cloud Monitoring <region>.monitoring.cloud.ibm.com
+  └── IBM Cloud Databases  api.<region>.databases.cloud.ibm.com
 ```
 
-Instead of clicking around the IBM Cloud Console, you can say:
-
-> *"What Code Engine apps are running right now?"*
-
-> *"Show me all error logs from the past 2 hours"*
-
-> *"Scale my PostgreSQL database to 8 GB memory"*
+Tools are plain Python functions decorated with `@tool`. They run inside Orchestrate's own runtime — no external server needed. Credentials are stored in a **team connection** (`ibmcloud_creds`) that is registered once by `deploy.sh`. The agent reads them automatically; users are never prompted.
 
 ---
 
-## Architecture Overview
+## Repository Structure
 
 ```
-ibm-cloud-toolkit/
+Building-IBM-Cloud-Ops-Agent/
 │
-├── install.sh                    ← Run once to configure everything
-├── .env                          ← Your IBM Cloud + Orchestrate credentials
-├── requirements.txt              ← Python dependencies
+├── src/tools/
+│   ├── ibm_auth.py               ← Shared IAM auth (reads from ibmcloud_creds connection)
+│   ├── code_engine_tools.py      ← 15 tools: list, diagnose, fix Code Engine apps & jobs
+│   ├── cloud_logs_tools.py       ←  6 tools: search, tail, filter, count errors
+│   ├── cloud_monitoring_tools.py ←  6 tools: metrics, alerts, dashboards
+│   ├── databases_tools.py        ←  8 tools: list, backup, scale, connection strings
+│   └── requirements.txt          ← Tool runtime dependencies
 │
-├── tools/
-│   ├── ibm_auth.py               ← IAM token management (shared)
-│   ├── code_engine_tools.py      ← 8 tools for Code Engine
-│   ├── cloud_logs_tools.py       ← 6 tools for Cloud Logs
-│   ├── cloud_monitoring_tools.py ← 6 tools for Cloud Monitoring
-│   ├── databases_tools.py        ← 8 tools for IBM Cloud Databases
-│   ├── register_tools.py         ← Generates OpenAPI spec
-│   ├── export_to_orchestrate.py  ← Import guide & API helper
-│   └── test_connection.py        ← Verifies IBM Cloud connection
+├── agents/
+│   └── ibm_cloud_ops_agent.yaml  ← Agent definition (system prompt + tool list)
 │
-├── config/                       ← Auto-generated after install
-│   ├── ibm_cloud_toolkit_openapi.json  ← Upload to watsonx Orchestrate
-│   ├── tool_manifest.json
-│   └── tools_summary.txt
+├── docs/
+│   └── demo-preview.png
 │
-└── docs/
-    └── GUIDE.md                  ← This file
+├── deploy.sh                     ← One script: credentials → tools → agent
+├── .env.example                  ← Copy to .env and fill in your values
+├── .gitignore
+├── requirements.txt              ← Local dev dependencies
+└── README.md
 ```
 
 ---
 
 ## Prerequisites
 
-| Requirement | How to Get It |
-|-------------|---------------|
-| IBM Cloud Account | [cloud.ibm.com/registration](https://cloud.ibm.com/registration) |
-| IBM Cloud API Key | IBM Cloud Console → Manage → Access (IAM) → API Keys → Create |
-| watsonx Orchestrate on IBM Cloud | IBM Cloud Catalog → AI / Machine Learning → watsonx Orchestrate |
-| Orchestrate Instance URL | IBM Cloud Console → Resource list → your Orchestrate instance → Manage → Credentials |
-| Python 3.9+ | [python.org](https://python.org) or `brew install python3` |
-| Git | [git-scm.com](https://git-scm.com) or `brew install git` |
-
-> **Finding your watsonx Orchestrate Instance URL:**
-> IBM Cloud Console → ☰ Menu → Resource list → AI / Machine Learning →
-> click your **watsonx Orchestrate** instance → **Manage** tab → copy the **URL** from Credentials.
-> It looks like: `https://cpd-<namespace>.<cluster>.us-south.containers.appdomain.cloud`
+| Requirement | Where to get it |
+|---|---|
+| IBM Cloud account | [cloud.ibm.com/registration](https://cloud.ibm.com/registration) |
+| IBM Cloud API key | Console → Manage → Access (IAM) → API Keys → Create |
+| watsonx Orchestrate instance | IBM Cloud Catalog → watsonx Orchestrate |
+| Orchestrate API key | Orchestrate UI → avatar → Settings → API details → Generate API key |
+| Python 3.11+ | [python.org](https://python.org) |
 
 ---
 
-## Installation
+## Setup
 
-### Step 1 — Clone the toolkit
-
-```bash
-git clone https://github.com/your-org/ibm-cloud-toolkit.git
-cd ibm-cloud-toolkit
-```
-
-### Step 2 — Run the installer
+### 1 — Clone the repo
 
 ```bash
-chmod +x install.sh
-./install.sh
+git clone https://github.com/rachvis/Building-IBM-Cloud-Ops-Agent.git
+cd Building-IBM-Cloud-Ops-Agent
 ```
 
-The installer will prompt you for:
-- Your **IBM Cloud API Key**
-- Your **IBM Cloud Region** (e.g. `us-south`, `eu-de`, `jp-tok`)
-- Your **Resource Group** (usually `Default`)
-- Your **watsonx Orchestrate Instance URL**
+### 2 — Install the ADK
 
-It then automatically:
-- Creates a `.env` file with all credentials
-- Sets up a Python virtual environment
-- Installs all dependencies
-- Tests your IBM Cloud connection
-- Generates the OpenAPI spec at `config/ibm_cloud_toolkit_openapi.json`
+```bash
+pip install ibm-watsonx-orchestrate
+```
 
-**Takes about 2–3 minutes.**
+### 3 — Configure credentials
 
-### Step 3 — Done 🎉
+```bash
+cp .env.example .env
+```
 
-Your OpenAPI spec is ready to import into watsonx Orchestrate on IBM Cloud.
+Edit `.env` and fill in these four required values:
+
+```bash
+IBMCLOUD_API_KEY=your-ibm-cloud-api-key
+IBMCLOUD_REGION=us-south
+ORCHESTRATE_INSTANCE_URL=https://your-instance.orchestrate.cloud.ibm.com
+ORCHESTRATE_API_KEY=your-orchestrate-api-key
+```
+
+Where to find the Orchestrate values:  
+Open your Orchestrate instance → click your **avatar** (top right) → **Settings** → **API details**
+
+Optional — add these for specific services:
+
+```bash
+CODE_ENGINE_PROJECT_ID=       # your default Code Engine project ID
+CLOUD_LOGS_INSTANCE_GUID=     # from: ibmcloud resource service-instance <name> --output json | grep guid
+CLOUD_MONITORING_INSTANCE_GUID=
+```
+
+Getting GUIDs via IBM Cloud CLI:
+```bash
+# Install IBM Cloud CLI if needed
+curl -fsSL https://clis.cloud.ibm.com/install/osx | sh
+ibmcloud login --apikey $IBMCLOUD_API_KEY -r us-south
+
+# Code Engine project ID
+ibmcloud ce project list
+
+# Cloud Logs GUID
+ibmcloud resource service-instances --service-name logs
+ibmcloud resource service-instance YOUR_LOGS_NAME --output json | grep '"guid"'
+
+# Monitoring GUID
+ibmcloud resource service-instances --service-name sysdig-monitor
+ibmcloud resource service-instance YOUR_MONITOR_NAME --output json | grep '"guid"'
+```
+
+### 4 — Deploy
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+That's it. The script:
+- Logs in to your Orchestrate instance
+- Registers `ibmcloud_creds` as a **team connection** (your IBM Cloud API key and all service IDs are stored there — the agent reads them at runtime, they are never surfaced in chat)
+- Imports all 35 tools
+- Imports the agent
+
+### 5 — Chat
+
+Open watsonx Orchestrate and start talking to **IBM Cloud Ops Agent**:
+
+```
+"List all my Code Engine projects"
+"Check the health of all my apps and fix anything broken"
+"Show me error logs from the last hour"
+"How many critical events in the last 30 minutes?"
+"Scale my postgres-prod database to 8 GB memory"
+"Create a backup of my Redis instance"
+```
 
 ---
 
-## Verifying Your Setup
+## Available Tools
 
-```bash
-source venv/bin/activate
-python3 tools/test_connection.py
-```
+### IBM Cloud Code Engine (15 tools)
 
-Expected output:
-```
-Testing IBM Cloud connection...
-  Region: us-south
-  ✅ Authentication successful! (token length: 1234 chars)
-```
-
-Test individual service tools:
-```bash
-python3 tools/code_engine_tools.py       # Lists Code Engine projects
-python3 tools/cloud_logs_tools.py        # Lists Cloud Logs instances
-python3 tools/cloud_monitoring_tools.py  # Lists monitoring instances
-python3 tools/databases_tools.py         # Lists database instances
-```
-
----
-
-## Available Tools Reference
-
-### 📦 IBM Cloud Code Engine (8 tools)
-
-| Tool | What it Does |
-|------|-------------|
-| `list_code_engine_projects` | List all Code Engine projects |
-| `list_code_engine_apps` | List apps in a project |
-| `get_app_details` | Detailed app info (URL, instances, config) |
-| `create_app` | Deploy a new containerized app |
-| `delete_app` | Remove an app |
+| Tool | What it does |
+|---|---|
+| `list_code_engine_projects` | List all projects in the account |
+| `list_code_engine_apps` | List apps in a project with health status |
+| `get_app_details` | Full config: image, port, env vars, scaling |
+| `get_app_instances` | Pod status, restart counts, crash-loop detection |
+| `get_app_logs` | Recent stdout/stderr with error highlighting |
+| `check_app_health` | **One-shot diagnosis**: status + crashes + logs + root-cause hints |
+| `update_app_env_vars` | Set/update environment variables (triggers new revision) |
+| `update_app` | Fix port, image, CPU, memory, or scaling |
+| `restart_app` | Force a rolling restart |
+| `create_app` | Deploy a new containerised app |
+| `delete_app` | Delete an app and all revisions |
+| `get_app_revisions` | Revision history — see what changed |
 | `list_jobs` | List batch job definitions |
 | `create_job_run` | Trigger a batch job run |
-| `get_job_run_status` | Check if a job run completed |
+| `get_job_run_status` | Check job run progress |
 
-### 📋 IBM Cloud Logs (6 tools)
+### IBM Cloud Logs (6 tools)
 
-| Tool | What it Does |
-|------|-------------|
-| `list_log_instances` | List Cloud Logs instances |
-| `search_logs` | Search logs by text query |
+| Tool | What it does |
+|---|---|
+| `list_log_instances` | List all Cloud Logs instances |
+| `search_logs` | Search by text query and time window |
 | `get_recent_logs` | Get the most recent log lines |
-| `get_logs_by_severity` | Filter by ERROR, CRITICAL, WARNING, etc. |
-| `count_errors` | Count issues and get a health summary |
+| `get_logs_by_severity` | Filter by debug / info / warning / error / critical |
+| `count_errors` | Count errors and return a health label |
 | `get_log_alerts` | List configured alert rules |
 
-### 📊 IBM Cloud Monitoring (6 tools)
+### IBM Cloud Monitoring (6 tools)
 
-| Tool | What it Does |
-|------|-------------|
-| `list_monitoring_instances` | List monitoring instances |
-| `query_metric` | Query CPU, memory, network, custom metrics |
-| `get_platform_metrics` | Query metrics from IBM platform services |
-| `list_alerts` | List monitoring alert rules |
+| Tool | What it does |
+|---|---|
+| `list_monitoring_instances` | List all monitoring instances |
+| `query_metric` | Query CPU, memory, network or custom metrics |
+| `get_platform_metrics` | Query platform metrics for a specific IBM service |
+| `list_alerts` | List configured alert rules |
 | `get_alert_events` | Get recent alert firings |
 | `get_team_dashboards` | List available dashboards |
 
-### 🗄️ IBM Cloud Databases (8 tools)
+### IBM Cloud Databases (8 tools)
 
-| Tool | What it Does |
-|------|-------------|
-| `list_database_instances` | List all database instances (filter by type) |
-| `get_database_details` | Detailed instance info |
+| Tool | What it does |
+|---|---|
+| `list_database_instances` | List all ICD instances (optional type filter) |
+| `get_database_details` | Version, state, member info |
 | `list_database_backups` | List available backups |
 | `create_manual_backup` | Trigger an immediate backup |
-| `get_connection_strings` | Get hostname, port, TLS info (no passwords) |
-| `scale_database` | Increase/decrease memory, disk, CPU |
+| `get_connection_strings` | Host, port, TLS info (no passwords) |
+| `scale_database` | Change memory, disk, or CPU allocation |
 | `list_database_tasks` | Monitor ongoing operations |
 | `get_database_whitelist` | View IP allowlist rules |
 
-**Total: 28 tools across 4 IBM Cloud services**
+**Total: 35 tools across 4 IBM Cloud services**
 
 ---
 
-## Importing into watsonx Orchestrate on IBM Cloud
+## How Credentials Flow (Why Orchestrate Never Asks in Chat)
 
-### Prerequisites
+```
+.env  ──────────────┐
+                    │  deploy.sh runs once:
+                    │  orchestrate connections set-credentials -a ibmcloud_creds
+                    │       -e IBMCLOUD_API_KEY=...
+                    │       -e CODE_ENGINE_PROJECT_ID=...
+                    ▼
+         Orchestrate team connection: ibmcloud_creds
+                    │
+         (stored securely — not surfaced to users)
+                    │
+         Tool runs at request time:
+                    │  os.environ["IBMCLOUD_API_KEY"]  ← injected from connection
+                    │  POST iam.cloud.ibm.com/identity/token  → Bearer token
+                    │  GET  api.us-south.codeengine.cloud.ibm.com/v2/...
+                    ▼
+         JSON result returned to Orchestrate → natural language response to user
+```
 
-- watsonx Orchestrate instance provisioned on IBM Cloud
-- `config/ibm_cloud_toolkit_openapi.json` generated (run `install.sh` first)
+The `--type team` flag in the connection means **all users share the same credentials** — no per-user setup, no prompts in chat, no API key visible to anyone after `deploy.sh` runs.
 
 ---
 
-### Method 1 — IBM Cloud Console UI (Recommended for first import)
+## Adding a Custom Tool
 
-1. Log in to [IBM Cloud Console](https://cloud.ibm.com)
+### 1. Write the function
 
-2. From the **☰ Navigation menu**, go to:
-   **AI / Machine Learning** → **watsonx Orchestrate**
+```python
+# src/tools/my_tools.py
+import os, sys, requests
+from ibm_watsonx_orchestrate.agent_builder.tools import tool, ToolPermission
 
-3. Click your **watsonx Orchestrate instance** to open it.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ibm_auth import auth_headers, region
 
-4. In the left sidebar, click **Skills & Apps**
+@tool(permission=ToolPermission.READ_ONLY)
+def get_my_resource(resource_id: str) -> dict:
+    """Get details of a specific resource from My IBM Cloud Service.
 
-5. Click **+ Add skills** → **From OpenAPI file**
-
-6. Upload:
-   ```
-   config/ibm_cloud_toolkit_openapi.json
-   ```
-
-7. Review the 28 tools → click **Add**
-
-8. Go to **Agent Builder** → open or create your agent → under **Skills**, add **IBM Cloud Toolkit**
-
----
-
-### Method 2 — watsonx Orchestrate REST API
-
-Use this for automation or CI/CD pipelines.
-
-**Step 1 — Get an IAM token:**
-```bash
-curl -X POST "https://iam.cloud.ibm.com/identity/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=$IBM_CLOUD_API_KEY"
+    Args:
+        resource_id: The ID of the resource to look up.
+    """
+    resp = requests.get(
+        f"https://api.{region()}.myservice.cloud.ibm.com/v1/resources/{resource_id}",
+        headers=auth_headers(),
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        return {"error": f"{resp.status_code}: {resp.text}"}
+    return resp.json()
 ```
 
-Save the `access_token` from the response.
-
-**Step 2 — Import the OpenAPI spec:**
-```bash
-ORCHESTRATE_URL="https://your-instance.orchestrate.cloud.ibm.com"
-IAM_TOKEN="Bearer eyJ..."
-
-curl -X POST "$ORCHESTRATE_URL/api/v1/skills/import" \
-  -H "Authorization: $IAM_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d @config/ibm_cloud_toolkit_openapi.json
-```
-
----
-
-### Method 3 — IBM Cloud CLI
-
-**Step 1 — Install the IBM Cloud CLI:**
-```bash
-curl -fsSL https://clis.cloud.ibm.com/install/osx | sh   # macOS
-# or
-curl -fsSL https://clis.cloud.ibm.com/install/linux | sh  # Linux
-```
-
-**Step 2 — Log in:**
-```bash
-ibmcloud login --apikey $IBM_CLOUD_API_KEY -r us-south
-```
-
-**Step 3 — Target your Orchestrate resource group:**
-```bash
-ibmcloud target -g Default
-ibmcloud resource service-instances --service-name watsonx-orchestrate
-```
-
-**Step 4 — Import via the Orchestrate API using the CLI's token:**
-```bash
-TOKEN=$(ibmcloud iam oauth-tokens --output json | jq -r '.iam_token')
-ORCHESTRATE_URL="https://your-instance.orchestrate.cloud.ibm.com"
-
-curl -X POST "$ORCHESTRATE_URL/api/v1/skills/import" \
-  -H "Authorization: $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d @config/ibm_cloud_toolkit_openapi.json
-```
-
----
-
-### Regenerate the spec anytime
-
-If you modify or add tools:
-```bash
-source venv/bin/activate
-python3 tools/register_tools.py
-# Then re-import config/ibm_cloud_toolkit_openapi.json into Orchestrate
-```
-
-### Fixing "invalid format" when importing `openapi.json`
-
-If watsonx Orchestrate reports the OpenAPI file has an invalid format, regenerate it using the latest generator logic:
+### 2. Add it to `deploy.sh`
 
 ```bash
-source venv/bin/activate
-python3 tools/register_tools.py
+import_tool "${TOOL_DIR}/my_tools.py"
 ```
 
-The generated spec is now aligned for Orchestrate import by:
-- Using OpenAPI `3.0.3`
-- Omitting `requestBody` entirely for tools that do not accept input parameters
-- Including `required` fields only when parameters are truly required
+### 3. Add it to `agents/ibm_cloud_ops_agent.yaml`
 
-Then upload `config/ibm_cloud_toolkit_openapi.json` again.
-
----
-
-## Creating Your First Agent
-
-Once skills are imported in watsonx Orchestrate on IBM Cloud:
-
-1. Go to **Agent Builder** in your Orchestrate instance
-2. Click **Create Agent** → name it `IBM Cloud Ops Agent`
-3. Add this system prompt:
-
-```
-You are an IBM Cloud operations assistant with access to tools for
-managing IBM Cloud Code Engine, Cloud Logs, Cloud Monitoring,
-and IBM Cloud Databases.
-
-- For application or deployment questions → use Code Engine tools
-- For log, error, or debugging questions → use Cloud Logs tools
-- For metrics or performance questions → use Monitoring tools
-- For database questions → use Databases tools
-
-Present information clearly. Flag resource usage over 80% as a warning.
-For error counts, label the situation as healthy, degraded, or critical.
+```yaml
+tools:
+  - get_my_resource      # ← add here
 ```
 
-4. Under **Skills**, add **IBM Cloud Toolkit**
-5. Click **Deploy**
+### 4. Re-deploy
 
----
-
-## Example Agent Conversations
-
-### Health Check
-```
-User:  Give me a quick health check of my IBM Cloud environment
-
-Agent: Checking Code Engine, Logs, and Monitoring...
-
-       Code Engine: 3 projects, 12 apps running ✅
-       Cloud Logs: 45 errors in the last hour ⚠️ (DEGRADED)
-       Monitoring: CPU 34% avg, Memory 62% avg ✅
-
-       Recommendation: Review the error logs from the past hour.
-```
-
-### Debugging
-```
-User:  Show me error logs from the last 30 minutes
-
-Agent: Searching Cloud Logs for errors...
-       Found 23 events:
-       - [10:23] ConnectionTimeoutException in orders-service
-       - [10:24] Database connection pool exhausted
-       ...
-```
-
-### Scaling
-```
-User:  Scale my PostgreSQL production database to 8GB memory
-
-Agent: Scaling initiated — 4096 MB → 8192 MB
-       Task ID: task-abc123
-       This will take ~10 minutes. Say "check database tasks" to monitor.
-```
-
-### Deployment
-```
-User:  Deploy backend-api from image icr.io/myns/api:v2.1
-
-Agent: ✅ App deployment initiated!
-       Project: production
-       URL: https://backend-api.abc123.us-south.codeengine.appdomain.cloud
-       Status: deploying (~2 minutes to ready)
+```bash
+./deploy.sh
 ```
 
 ---
 
 ## Troubleshooting
 
-### "IBM_CLOUD_API_KEY not found"
+**`orchestrate` command not found**
 ```bash
-cat .env | grep IBM_CLOUD_API_KEY   # verify key is present
-./install.sh                         # re-run installer if missing
+pip install ibm-watsonx-orchestrate
 ```
 
-### "Authentication failed: 401"
-Your API key may be expired. Create a new one:
-IBM Cloud Console → Manage → Access (IAM) → API Keys → Create → update `.env`
+**`deploy.sh` fails at login**  
+Verify your `ORCHESTRATE_INSTANCE_URL` and `ORCHESTRATE_API_KEY` in `.env`.  
+The URL comes from: Orchestrate UI → avatar → Settings → API details → Service instance URL  
+The API key from the same page → Generate API key.
 
-### "Failed to list: 403 Forbidden"
-Your API key doesn't have permission for that service.
-IBM Cloud Console → Manage → Access (IAM) → Users → your user → Access policies → Add access
+**Agent asks for credentials in chat**  
+This means `--type team` wasn't set on the connection. Re-run `./deploy.sh` — it reconfigures the connection correctly.
 
-### "Orchestrate import fails"
-- Validate the spec: `python3 -c "import json; json.load(open('config/ibm_cloud_toolkit_openapi.json'))"`
-- Regenerate spec with latest format fixes: `python3 tools/register_tools.py`
-- Confirm your Orchestrate instance URL is correct in `.env`
-- Check that your IBM Cloud account has the Orchestrate instance in **Active** state
+**Tool returns `IBMCLOUD_API_KEY is not set`**  
+The connection wasn't linked to the tools at import time. Re-run `./deploy.sh` — it passes `--app-id ibmcloud_creds` on every `orchestrate tools import`.
 
-### watsonx Orchestrate instance URL not working
-Your instance URL should look like one of these:
-- `https://cpd-<namespace>.<cluster>.us-south.containers.appdomain.cloud`
-- `https://<instance-id>.orchestrate.cloud.ibm.com`
+**401 / 403 from IBM Cloud APIs**  
+Your API key doesn't have IAM access to that service. Add a policy:  
+IBM Cloud Console → Manage → Access (IAM) → Users → your user → Access policies → Add.
 
-Find the correct URL in: IBM Cloud Console → Resource list → your Orchestrate instance → **Manage** tab
-
-### Tool returns empty list
-This is expected if you haven't created those services yet.
-For example, `list_code_engine_projects` returns `{"projects": [], "count": 0}` with no projects.
+**Empty results from Code Engine / Logs / Monitoring**  
+The optional GUIDs in `.env` may be missing. Add them and re-run `./deploy.sh`.  
+Or ask the agent: *"List my Cloud Logs instances"* — it will discover GUIDs dynamically.
 
 ---
 
-## Adding Custom Tools
+## Links
 
-### 1. Create a new tools file
-
-```python
-# tools/my_service_tools.py
-
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ibm_auth import auth_headers
-import requests
-
-def my_new_tool(param1: str) -> dict:
-    """
-    Short description of what this tool does.
-
-    Parameters
-    ----------
-    param1 : str
-        What param1 is.
-
-    Returns
-    -------
-    dict
-        What is returned.
-    """
-    response = requests.get(
-        f"https://api.{os.getenv('IBM_CLOUD_REGION')}.myservice.cloud.ibm.com/v1/resource/{param1}",
-        headers=auth_headers()
-    )
-    return response.json()
-
-MY_SERVICE_TOOLS = [
-    {
-        "name": "my_new_tool",
-        "description": "One-sentence description for the AI agent",
-        "function": my_new_tool,
-        "parameters": {
-            "param1": {"type": "string", "description": "What param1 does"},
-        },
-    }
-]
-```
-
-### 2. Register it in `tools/register_tools.py`
-
-```python
-from my_service_tools import MY_SERVICE_TOOLS
-
-ALL_TOOLS = (
-    CODE_ENGINE_TOOLS
-    + CLOUD_LOGS_TOOLS
-    + MONITORING_TOOLS
-    + DATABASES_TOOLS
-    + MY_SERVICE_TOOLS   # ← Add here
-)
-```
-
-### 3. Regenerate and reimport
-
-```bash
-python3 tools/register_tools.py
-# Then upload config/ibm_cloud_toolkit_openapi.json to watsonx Orchestrate again
-```
-
----
-
-## Security Notes
-
-- Your API key lives only in the local `.env` file
-- `.env` is excluded from git (listed in `.gitignore`)
-- IBM Cloud IAM tokens expire after 60 minutes — the toolkit refreshes them automatically
-- Database connection strings are returned **without passwords**
-- For production deployments, store secrets in **IBM Secrets Manager** instead of `.env`
-
----
-
-## Useful Links
-
-| Resource | URL |
-|----------|-----|
-| IBM Cloud Console | https://cloud.ibm.com |
-| watsonx Orchestrate docs | https://www.ibm.com/docs/en/watsonx/watson-orchestrate |
-| IBM Cloud Code Engine docs | https://cloud.ibm.com/docs/codeengine |
-| IBM Cloud Logs docs | https://cloud.ibm.com/docs/cloud-logs |
-| IBM Cloud Monitoring docs | https://cloud.ibm.com/docs/monitoring |
-| IBM Cloud Databases docs | https://cloud.ibm.com/docs/databases-for-postgresql |
-| IBM Cloud CLI | https://cloud.ibm.com/docs/cli |
-| IBM IAM API Keys | https://cloud.ibm.com/iam/apikeys |
+| | |
+|---|---|
+| watsonx Orchestrate ADK docs | https://developer.watson-orchestrate.ibm.com |
+| IBM Cloud Code Engine | https://cloud.ibm.com/docs/codeengine |
+| IBM Cloud Logs | https://cloud.ibm.com/docs/cloud-logs |
+| IBM Cloud Monitoring | https://cloud.ibm.com/docs/monitoring |
+| IBM Cloud Databases | https://cloud.ibm.com/docs/databases-for-postgresql |
+| IBM Cloud IAM API keys | https://cloud.ibm.com/iam/apikeys |
