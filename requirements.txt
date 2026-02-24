@@ -1,3 +1,2 @@
-ibm-watsonx-orchestrate>=1.0.0
-requests>=2.31.0
-python-dotenv>=1.0.0
+# IBM Cloud Ops Agent — Python Dependencies
+requests>=2.28.0
