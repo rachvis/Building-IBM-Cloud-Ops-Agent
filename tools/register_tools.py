@@ -7,10 +7,12 @@ and generates the manifest files needed for import into watsonx Orchestrate.
 Run this after install.sh, or whenever you add/modify tools.
 """
 
+import argparse
+import json
 import os
 import sys
-import json
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,10 +29,28 @@ ALL_TOOLS = (
 )
 
 
-def build_openapi_spec(tools: list) -> dict:
+def _resolve_orchestrate_url(cli_value: Optional[str]) -> str:
+    if cli_value:
+        return cli_value
+
+    env_url = os.getenv("WATSONX_ORCHESTRATE_INSTANCE_URL", "").strip()
+    if env_url:
+        return env_url
+
+    return "https://your-instance.orchestrate.cloud.ibm.com"
+
+
+def build_openapi_spec(
+    tools: list,
+    orchestrate_url: str,
+    include_security: bool = False,
+) -> dict:
     """
     Build an OpenAPI 3.0 specification from the tool registry.
     watsonx Orchestrate can import tools via OpenAPI specs.
+
+    include_security=False keeps imports simple in Orchestrate, avoiding
+    extra auth configuration prompts during skill import.
     """
     paths = {}
 
@@ -44,50 +64,50 @@ def build_openapi_spec(tools: list) -> dict:
                 "type": param_info.get("type", "string"),
                 "description": param_info.get("description", ""),
             }
-            # Mark string params without "optional" in description as required
-            if "optional" not in param_info.get("description", "").lower() and \
-               "default" not in param_info.get("description", "").lower():
+            description = param_info.get("description", "").lower()
+            if "optional" not in description and "default" not in description:
                 required.append(param_name)
 
-        request_body = None
+        operation = {
+            "operationId": tool["name"],
+            "summary": tool["description"],
+            "description": (tool.get("function", lambda: None).__doc__ or tool["description"]).strip(),
+            "responses": {
+                "200": {
+                    "description": "Successful response",
+                    "content": {
+                        "application/json": {
+                            "schema": {"type": "object"}
+                        }
+                    },
+                },
+                "400": {"description": "Bad request — check parameters"},
+                "401": {"description": "Authentication failed — check IBM Cloud API key"},
+                "500": {"description": "Internal error"},
+            },
+        }
+
         if properties:
-            request_body = {
+            schema = {
+                "type": "object",
+                "properties": properties,
+            }
+            if required:
+                schema["required"] = required
+
+            operation["requestBody"] = {
                 "required": bool(required),
                 "content": {
                     "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "properties": properties,
-                            "required": required if required else [],
-                        }
+                        "schema": schema,
                     }
                 },
             }
 
-        paths[path] = {
-            "post": {
-                "operationId": tool["name"],
-                "summary": tool["description"],
-                "description": tool.get("function", lambda: None).__doc__ or tool["description"],
-                "requestBody": request_body,
-                "responses": {
-                    "200": {
-                        "description": "Successful response",
-                        "content": {
-                            "application/json": {
-                                "schema": {"type": "object"}
-                            }
-                        },
-                    },
-                    "400": {"description": "Bad request — check parameters"},
-                    "401": {"description": "Authentication failed — check IBM Cloud API key"},
-                    "500": {"description": "Internal error"},
-                },
-            }
-        }
+        paths[path] = {"post": operation}
 
     spec = {
-        "openapi": "3.0.0",
+        "openapi": "3.0.3",
         "info": {
             "title": "IBM Cloud Toolkit for watsonx Orchestrate",
             "version": "1.0.0",
@@ -104,15 +124,15 @@ def build_openapi_spec(tools: list) -> dict:
         },
         "servers": [
             {
-                "url": os.getenv(
-                    "WATSONX_ORCHESTRATE_INSTANCE_URL",
-                    "https://your-instance.orchestrate.cloud.ibm.com"
-                ),
+                "url": orchestrate_url,
                 "description": "watsonx Orchestrate on IBM Cloud"
             }
         ],
         "paths": paths,
-        "components": {
+    }
+
+    if include_security:
+        spec["components"] = {
             "securitySchemes": {
                 "IBMCloudApiKey": {
                     "type": "apiKey",
@@ -121,9 +141,8 @@ def build_openapi_spec(tools: list) -> dict:
                     "description": "IBM Cloud IAM Bearer token. Set IBM_CLOUD_API_KEY in .env",
                 }
             }
-        },
-        "security": [{"IBMCloudApiKey": []}],
-    }
+        }
+        spec["security"] = [{"IBMCloudApiKey": []}]
 
     return spec
 
@@ -173,24 +192,42 @@ def _get_category(tool_name: str) -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Generate OpenAPI/manifest files for Orchestrate")
+    parser.add_argument(
+        "--orchestrate-url",
+        default=None,
+        help="Explicit watsonx Orchestrate URL. Defaults to WATSONX_ORCHESTRATE_INSTANCE_URL.",
+    )
+    parser.add_argument(
+        "--include-security",
+        action="store_true",
+        help="Include OpenAPI security schemes/global security (off by default for easier import).",
+    )
+    args = parser.parse_args()
+
     output_dir = Path(__file__).parent.parent / "config"
     output_dir.mkdir(exist_ok=True)
 
-    # Write OpenAPI spec
-    spec = build_openapi_spec(ALL_TOOLS)
+    orchestrate_url = _resolve_orchestrate_url(args.orchestrate_url)
+
+    spec = build_openapi_spec(
+        ALL_TOOLS,
+        orchestrate_url=orchestrate_url,
+        include_security=args.include_security,
+    )
     spec_path = output_dir / "ibm_cloud_toolkit_openapi.json"
     with open(spec_path, "w") as f:
         json.dump(spec, f, indent=2)
     print(f"✅  OpenAPI spec written → {spec_path}")
+    print(f"   Server URL: {orchestrate_url}")
+    print(f"   Security scheme included: {'yes' if args.include_security else 'no'}")
 
-    # Write tool manifest
     manifest = build_tool_manifest(ALL_TOOLS)
     manifest_path = output_dir / "tool_manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"✅  Tool manifest written → {manifest_path}")
 
-    # Write human-readable tool list
     summary_lines = [
         "IBM Cloud Toolkit — Available Tools",
         "=" * 50,
@@ -215,9 +252,7 @@ def main():
     print(f"✅  Tool summary written → {summary_path}")
 
     print(f"\n🎉 Registered {len(ALL_TOOLS)} tools for the IBM Cloud Ops Agent!")
-    print(f"\nCategories:")
-    for cat, tools in categories.items():
-        print(f"   {cat}: {len(tools)} tools")
+    print("Tip: use `python3 tools/register_tools.py` for import-friendly output with no auth prompts.")
 
 
 if __name__ == "__main__":

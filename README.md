@@ -299,14 +299,35 @@ curl -X POST "$ORCHESTRATE_URL/api/v1/skills/import" \
 
 ---
 
-### Regenerate the spec anytime
+### One-command OpenAPI generation (recommended)
 
-If you modify or add tools:
+If you want the easiest import path, run exactly one command:
 ```bash
-source venv/bin/activate
-python3 tools/register_tools.py
-# Then re-import config/ibm_cloud_toolkit_openapi.json into Orchestrate
+source venv/bin/activate && python3 tools/register_tools.py
 ```
+
+This generates an import-friendly OpenAPI file at `config/ibm_cloud_toolkit_openapi.json` with:
+- OpenAPI `3.0.3`
+- No `requestBody` for parameterless tools
+- `required` included only when needed
+- No OpenAPI auth/security block by default (avoids extra auth prompts in Orchestrate import)
+
+### Optional: include OpenAPI auth/security block
+
+If you specifically want auth metadata in the OpenAPI spec, generate with:
+```bash
+source venv/bin/activate && python3 tools/register_tools.py --include-security
+```
+
+### Fixing "invalid format" when importing `openapi.json`
+
+If watsonx Orchestrate reports the OpenAPI file has an invalid format, regenerate it using the latest generator logic:
+
+```bash
+source venv/bin/activate && python3 tools/register_tools.py
+```
+
+Then upload `config/ibm_cloud_toolkit_openapi.json` again.
 
 ---
 
@@ -402,6 +423,7 @@ IBM Cloud Console → Manage → Access (IAM) → Users → your user → Access
 
 ### "Orchestrate import fails"
 - Validate the spec: `python3 -c "import json; json.load(open('config/ibm_cloud_toolkit_openapi.json'))"`
+- Regenerate spec with import-friendly defaults: `python3 tools/register_tools.py`
 - Confirm your Orchestrate instance URL is correct in `.env`
 - Check that your IBM Cloud account has the Orchestrate instance in **Active** state
 
