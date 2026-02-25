@@ -176,6 +176,12 @@ If you prefer, you can still use the interactive wizard to generate `.env`:
 python3 scripts/setup_wizard.py
 ```
 
+If you prefer, you can still use the interactive wizard to generate `.env`:
+
+```bash
+python3 scripts/setup_wizard.py
+```
+
 ### Step 6: Verify Everything Works
 
 ```bash
