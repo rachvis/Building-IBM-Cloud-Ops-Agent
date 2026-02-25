@@ -70,7 +70,7 @@ That's it! No IBM Cloud CLI required — everything uses REST APIs.
 
 ---
 
-## Quick Start (5 Steps)
+## Quick Start (6 Steps)
 
 ```bash
 # 1. Clone this repo
@@ -125,6 +125,9 @@ Done! Open watsonx Orchestrate and talk to your agent.
    - Click **"New credential"** → name it `ops-agent-cred` → click **Add**
    - Expand the credential and copy the **`apikey`** value
 3. Copy the **instance URL** from the **Manage** tab (looks like `https://api.us-south.watson-orchestrate.watson.cloud.ibm.com/instances/YOUR_INSTANCE_ID`)
+4. In `.env`, set:
+   - `WO_INSTANCE=<that instance URL>`
+   - `WO_API_KEY=<apikey from service credentials>`
 
 ### Step 4: Get Service-Specific Credentials
 
@@ -164,6 +167,13 @@ Create your `.env` from `.env.example`, fill in your values, and then you can de
 ```bash
 cp .env.example .env
 # Then open .env in any text editor and fill in your values
+# Keep WO_ENV_NAME=local unless you intentionally manage custom CLI envs
+```
+
+If you prefer, you can still use the interactive wizard to generate `.env`:
+
+```bash
+python3 scripts/setup_wizard.py
 ```
 
 If you prefer, you can still use the interactive wizard to generate `.env`:
@@ -187,10 +197,11 @@ You'll see green checkmarks ✅ for connected services and red ✗ for any issue
 ```
 
 This script:
-1. Installs the `ibm-watsonx-orchestrate` CLI tool
-2. Authenticates with your Orchestrate instance
-3. Deploys the toolkit (all the tools the agent can use)
-4. Creates the agent with a system prompt
+1. Uses `WO_INSTANCE` + `WO_API_KEY` from your `.env` for model access
+2. Installs the `ibm-watsonx-orchestrate` CLI tool
+3. Authenticates with your Orchestrate instance
+4. Deploys the toolkit (all the tools the agent can use)
+5. Creates the agent with a system prompt
 
 ---
 

@@ -228,6 +228,7 @@ def main():
     check("Account ID valid",           check_account_id)
 
     print("\n[ watsonx Orchestrate ]")
+    check("WO_INSTANCE is set", check_env_key, 'WO_INSTANCE', 'watsonx Orchestrate instance URL')
     check("WO_API_KEY is set", check_env_key, 'WO_API_KEY', 'watsonx Orchestrate API Key')
     check("orchestrate CLI",   check_orchestrate_cli)
 

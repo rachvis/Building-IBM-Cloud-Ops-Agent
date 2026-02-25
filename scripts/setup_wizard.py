@@ -94,9 +94,15 @@ def main():
         "Orchestrate API Key: IBM Cloud → Resources → your Orchestrate instance\n"
         "  → 'Service credentials' tab → 'New credential' → expand it → copy 'apikey'."
     )
+    print_instruction(
+        "Orchestrate Instance URL: IBM Cloud → your Orchestrate instance → Manage tab\n"
+        "  → copy the instance URL (contains /instances/<id>)."
+    )
+    values['WO_INSTANCE'] = ask("watsonx Orchestrate Instance URL", required=True)
+
     values['WO_API_KEY'] = ask("watsonx Orchestrate API Key", required=True)
 
-    values['WO_ENV_NAME'] = ask("Orchestrate environment name (default: ibmcloud-ops)", required=False, default='ibmcloud-ops') or 'ibmcloud-ops'
+    values['WO_ENV_NAME'] = ask("Orchestrate environment name (default: local)", required=False, default='local') or 'local'
 
     # ─── CODE ENGINE ───
     print("\n" + "─" * 50)
