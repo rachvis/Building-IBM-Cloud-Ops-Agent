@@ -43,7 +43,7 @@ echo "╚═══════════════════════�
 # ─── Step 0: Check prerequisites ───
 step "0" "Checking prerequisites..."
 
-[ -f "$ENV_FILE" ] || die ".env file not found. Run: python3 scripts/setup_wizard.py"
+[ -f "$ENV_FILE" ] || die ".env file not found. Run: cp .env.example .env (or python3 scripts/setup_wizard.py)"
 
 command -v python3 >/dev/null 2>&1 || die "Python 3 is required but not installed."
 ok "Python 3 found: $(python3 --version)"
