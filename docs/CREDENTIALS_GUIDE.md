@@ -35,11 +35,13 @@ Each section includes step-by-step screenshots instructions.
 
 ---
 
-## watsonx Orchestrate API Key (`WO_API_KEY`)
+## watsonx Orchestrate credentials (`WO_INSTANCE` + `WO_API_KEY`)
 
-**What it is:** The API key specific to your watsonx Orchestrate instance.
+**What they are:**
+- `WO_INSTANCE`: the instance URL for your watsonx Orchestrate deployment
+- `WO_API_KEY`: the API key specific to your watsonx Orchestrate instance
 
-**How to get it:**
+**How to get them:**
 1. Go to [IBM Cloud Resource List](https://cloud.ibm.com/resources)
 2. Expand **"AI / Machine Learning"**
 3. Click on your **watsonx Orchestrate** instance
@@ -50,6 +52,8 @@ Each section includes step-by-step screenshots instructions.
 6. Click **"Add"**
 7. Expand the new credential entry
 8. Copy the `apikey` value → paste as `WO_API_KEY`
+9. Open the **Manage** tab for the same instance
+10. Copy the instance URL (`.../instances/<id>`) → paste as `WO_INSTANCE`
 
 ---
 
@@ -118,3 +122,14 @@ python3 scripts/verify_credentials.py
 ```
 
 This will test each credential and tell you exactly what's wrong if something fails.
+
+
+## CPD / alternative model access (optional)
+
+If you run Orchestrate on CPD, you may also need:
+- `WO_USERNAME`
+- either `WO_API_KEY` or `WO_PASSWORD`
+
+Alternatively, some environments accept direct watsonx credentials:
+- `WATSONX_SPACE_ID`
+- `WATSONX_APIKEY`

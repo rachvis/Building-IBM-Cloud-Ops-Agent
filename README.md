@@ -70,23 +70,27 @@ That's it! No IBM Cloud CLI required — everything uses REST APIs.
 
 ---
 
-## Quick Start (5 Steps)
+## Quick Start (6 Steps)
 
 ```bash
 # 1. Clone this repo
 git clone https://github.com/YOUR_USERNAME/ibm-cloud-ops-agent.git
 cd ibm-cloud-ops-agent
 
-# 2. Run the interactive setup wizard
+# 2. Create your local env file
+cp .env.example .env
+# Then edit .env and add your real credential values
+
+# 3. (Optional) use the interactive setup wizard instead of manual editing
 python3 scripts/setup_wizard.py
 
-# 3. Install dependencies
+# 4. Install dependencies
 pip install -r requirements.txt
 
-# 4. Test your credentials
+# 5. Test your credentials
 python3 scripts/verify_credentials.py
 
-# 5. Deploy the agent
+# 6. Deploy the agent
 ./deploy.sh
 ```
 
@@ -121,6 +125,9 @@ Done! Open watsonx Orchestrate and talk to your agent.
    - Click **"New credential"** → name it `ops-agent-cred` → click **Add**
    - Expand the credential and copy the **`apikey`** value
 3. Copy the **instance URL** from the **Manage** tab (looks like `https://api.us-south.watson-orchestrate.watson.cloud.ibm.com/instances/YOUR_INSTANCE_ID`)
+4. In `.env`, set:
+   - `WO_INSTANCE=<that instance URL>`
+   - `WO_API_KEY=<apikey from service credentials>`
 
 ### Step 4: Get Service-Specific Credentials
 
@@ -155,17 +162,18 @@ Done! Open watsonx Orchestrate and talk to your agent.
 
 ### Step 5: Configure Your Environment
 
-Run the interactive wizard — it will ask you for each credential:
-
-```bash
-python3 scripts/setup_wizard.py
-```
-
-Or manually copy `.env.example` to `.env` and fill it in:
+Create your `.env` from `.env.example`, fill in your values, and then you can deploy with one script (`./deploy.sh`):
 
 ```bash
 cp .env.example .env
 # Then open .env in any text editor and fill in your values
+# Keep WO_ENV_NAME=local unless you intentionally manage custom CLI envs
+```
+
+If you prefer, you can still use the interactive wizard to generate `.env`:
+
+```bash
+python3 scripts/setup_wizard.py
 ```
 
 ### Step 6: Verify Everything Works
@@ -183,10 +191,11 @@ You'll see green checkmarks ✅ for connected services and red ✗ for any issue
 ```
 
 This script:
-1. Installs the `ibm-watsonx-orchestrate` CLI tool
-2. Authenticates with your Orchestrate instance
-3. Deploys the toolkit (all the tools the agent can use)
-4. Creates the agent with a system prompt
+1. Uses `WO_INSTANCE` + `WO_API_KEY` from your `.env` for model access
+2. Installs the `ibm-watsonx-orchestrate` CLI tool
+3. Authenticates with your Orchestrate instance
+4. Deploys the toolkit (all the tools the agent can use)
+5. Creates the agent with a system prompt
 
 ---
 

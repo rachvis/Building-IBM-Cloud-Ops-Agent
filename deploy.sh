@@ -43,7 +43,7 @@ echo "╚═══════════════════════�
 # ─── Step 0: Check prerequisites ───
 step "0" "Checking prerequisites..."
 
-[ -f "$ENV_FILE" ] || die ".env file not found. Run: python3 scripts/setup_wizard.py"
+[ -f "$ENV_FILE" ] || die ".env file not found. Run: cp .env.example .env (or python3 scripts/setup_wizard.py)"
 
 command -v python3 >/dev/null 2>&1 || die "Python 3 is required but not installed."
 ok "Python 3 found: $(python3 --version)"
@@ -61,11 +61,16 @@ set +a
 # Validate required vars
 [ -n "${IBMCLOUD_API_KEY:-}" ]   || die "IBMCLOUD_API_KEY is missing from .env"
 [ -n "${IBMCLOUD_ACCOUNT_ID:-}" ] || die "IBMCLOUD_ACCOUNT_ID is missing from .env"
+[ -n "${WO_INSTANCE:-}" ]        || die "WO_INSTANCE is missing from .env"
 [ -n "${WO_API_KEY:-}" ]         || die "WO_API_KEY is missing from .env"
 
 ok "Credentials loaded"
 echo "    Region: ${IBMCLOUD_REGION:-us-south}"
 echo "    Account: ${IBMCLOUD_ACCOUNT_ID}"
+echo "    Orchestrate instance: ${WO_INSTANCE}"
+# Export model-access environment variables for orchestrate commands
+export WO_INSTANCE WO_API_KEY WO_ENV_NAME WO_USERNAME WO_PASSWORD WATSONX_SPACE_ID WATSONX_APIKEY
+
 
 # ─── Step 2: Install orchestrate CLI ───
 step "2" "Checking watsonx Orchestrate CLI..."
@@ -91,14 +96,38 @@ fi
 # ─── Step 4: Create / activate Orchestrate environment ───
 step "4" "Setting up watsonx Orchestrate environment..."
 
-WO_ENV_NAME="${WO_ENV_NAME:-ibmcloud-ops}"
+WO_ENV_NAME="${WO_ENV_NAME:-local}"
 
-echo "  Creating environment: $WO_ENV_NAME"
-orchestrate env create "$WO_ENV_NAME" --api-key "$WO_API_KEY" 2>/dev/null || \
-    echo "  (environment may already exist, continuing)"
+activate_orchestrate_env() {
+    local env_name="$1"
 
-orchestrate env activate "$WO_ENV_NAME" --api-key "$WO_API_KEY"
-ok "Environment '$WO_ENV_NAME' activated"
+    # 'local' exists by default in the CLI config and does not need creation.
+    if [ "$env_name" != "local" ]; then
+        echo "  Creating environment: $env_name"
+        if ! orchestrate env create "$env_name" --api-key "$WO_API_KEY" >/dev/null 2>&1; then
+            warn "Could not create environment '$env_name' (it may already exist or the CLI may not persist it in this runtime)."
+        fi
+    fi
+
+    echo "  Activating environment: $env_name"
+    if orchestrate env activate "$env_name" --api-key "$WO_API_KEY" >/dev/null 2>&1; then
+        ok "Environment '$env_name' activated"
+        return 0
+    fi
+
+    return 1
+}
+
+if ! activate_orchestrate_env "$WO_ENV_NAME"; then
+    if [ "$WO_ENV_NAME" != "local" ]; then
+        warn "Failed to activate '$WO_ENV_NAME'. Falling back to the built-in 'local' environment."
+        if ! activate_orchestrate_env "local"; then
+            die "Failed to activate Orchestrate environment. Try: orchestrate env activate local --api-key \"$WO_API_KEY\""
+        fi
+    else
+        die "Failed to activate Orchestrate environment 'local'. Check WO_INSTANCE/WO_API_KEY and CLI login state."
+    fi
+fi
 
 # ─── Step 5: Inject credentials ───
 step "5" "Injecting credentials into toolkit server..."
